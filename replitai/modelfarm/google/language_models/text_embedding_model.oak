@@ -1,0 +1,68 @@
+std := import('std')
+
+EmbMdl := import('../../EmbeddingModel')
+
+fn TextEmbeddingStatistics {
+  {
+    token_count: 0
+    truncated: false
+  }
+}
+
+fn TextEmbedding {
+  {
+    statistics: TextEmbeddingStatistics()
+    values: []
+  }
+}
+
+fn TextEmbeddingModel {
+  self := {}
+
+  self._init := fn _init(model_id) {
+    self.underlying_model <- EmbMdl.EmbeddingModel(model_id)
+  }
+
+  self.from_pretrained := fn from_pretrained(model_id) {
+    TextEmbeddingModel(model_id)
+  }
+
+  // > "this model only takes in the content parameter and nothing else"
+  self.get_embeddings := fn get_embeddings(content) {
+    request := self.__ready_input(content)
+    // > "since this model only takes the content param, we don't pass kwargs"
+    response := self.underlying_model.embed(request)
+
+    self.__ready_response(response)
+  }
+
+  self.__ready_input := fn __ready_input(content) {
+    // [{'content': x} for x in content]
+
+    _rebuild := []
+    with std.map(content) fn (obj, item) {
+      _rebuild << {'content': obj}
+    }
+
+    _rebuild
+  }
+
+  self.__ready_response := fn __ready_response(response) {
+
+    fn transform_response(x) {
+      metadata := x.tokenCountMetadata
+      tokenCount := metadata.unbilledTokens + metadata.billableTokens
+      stats := TextEmbeddingStatistics(tokenCount, x.truncated)
+      TextEmbedding(stats, x.values)
+    }
+
+    _rebuild := []
+    with std.map(response.embeddings) fn (obj, item) {
+      _rebuild << transform_response(obj)
+    }
+
+    _rebuild
+  }
+
+  self
+}

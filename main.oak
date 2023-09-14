@@ -1,0 +1,26 @@
+std := import('std')
+json := import('json')
+ rai := import('replitai/main')
+
+std.println(req({
+    url: 'https://google.com'
+    method: 'GET'
+  }), 
+
+  json.parse('{"test": "test"}')
+
+)
+
+with std.filter(lel) fn(item, count) {
+  _msgkeys := keys(lel)
+
+  // std.println(_msgkeys.(count))
+  
+  if _msgkeys.(count) {
+    'content', 'author' -> true
+    _ -> false
+  }
+
+} |>
+string() |>
+std.println()

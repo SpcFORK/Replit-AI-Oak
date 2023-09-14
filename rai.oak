@@ -1,0 +1,283 @@
+// SPCFORK - OMG GUYS!!!
+// 1:54 AM 23/09/08
+
+std := import('std')
+str := import('str')
+json := import('json')
+fmt := import('fmt')
+expr := import('expressive')
+
+// Models Available!
+replModels := {
+  Chat: atom('chat-bison')
+}
+
+ChatModel := [replModels.Chat]
+
+baseUrl := env().MODEL_FARM_URL |> std.default('https://production-modelfarm.replit.com/')
+
+isDeployment := if env().REPLIT_DEPLOYMENT {
+  'true' -> true
+  'false' -> false
+}
+
+cachedToken := ?
+
+////
+// AI RES TYPES
+////
+
+fn Result(value, error, errorExtras) {
+  this := []
+  if error {
+    _ -> {
+      this.ok := false
+      this.error := error
+      this.errorExtras := errorExtras
+    }
+    ? -> {
+      this.ok := true
+      this.value := value
+    }  
+  }
+
+  this
+}
+
+fn Err(error, errorExtras) {
+  Result(?, error, errorExtras)
+}
+
+fn Ok(value) {
+  Result(value)
+}
+
+////
+
+fn RequestError() {
+  {
+    message: ''
+    statusCode: 0
+  }
+}
+
+// Message Interface
+fn ChatMessage() {
+  {
+    content: ''
+    author: ''
+  }
+}
+
+// Message Opts Interface
+fn ChatOptions() {
+  {
+    model?: ChatModel
+    context?: ''
+    examples?: []
+    messages: []
+    temperature?: 0
+  }
+}
+
+fn ChatMultipleChoicesOptions() {
+  _temp := ChatOptions()
+
+  _temp |> std.merge({
+    choicesCount := 0
+  })
+}
+
+////
+
+fn genReplIdentityToken() {
+  _res? := exec(
+    '$REPLIT_CLI',
+    'identity create -audience="modelfarm@replit.com"',
+    ''
+  )
+
+  _res? |> str.trim()
+}
+
+fn getDeploymentToken() {
+  _res? := 'http://localhost:1105/getIdentityToken' |> req({
+    body: json.parse({ audience: 'modelfarm@replit.com' }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
+  })
+
+  _resjson := _res?.resp.body |> json.parse()
+
+  endresult := ?
+
+  if type(_resjson) {
+    ? -> {
+      with std.println() 'Expected json to have identity token'
+    }
+
+    :object -> {
+
+      if _resjson |> std.contains?('identityToken ') {
+        false, ? -> {
+          with std.println() 'Expected json to have identity token'
+        }
+
+        true -> {
+
+          if _resjson.identityToken  |> type() {
+            :string -> {
+              endresult <- _resjson.identityToken
+            }
+            _, ? -> {
+              with std.println() 'Expected identity token to be a string'
+            }
+          }
+
+        }
+      }
+
+    }
+
+    _ -> {
+      with std.println() 'Expected json to be an object'
+    }
+  }
+
+  // @Returns
+  endresult
+}
+
+fn makeRequest(urlPath, body, processJSON) {
+  urlPath := urlPath |> std.default('')
+  body := body |> std.default('')
+  // processJSON := processJSON |> std.default('')
+
+  flag? := false
+
+  response := url |> req({
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+      Authorization: 'Bearer {{ 0 }}' |> fmt.format(getToken())
+    },
+    body: json.serialize(body),
+  })
+
+  if response.resp.status != 200 {
+    true -> {
+      flag? <- result.Err({
+        message: response
+        statusCode: response.status
+      })
+    }
+  }
+
+  if response.resp.body {
+    _ -> {
+      flag? <- result.Err({
+        message: 'No response body'
+        statusCode: response.status
+      })
+    }
+  }
+
+  // We won't pipe, it's not possible.
+
+  if flag? -> result.Ok(response.resp.body)
+
+}
+
+fn chatStream(options) {
+  options := options |> std.default(ChatOptions())
+
+  with chatImpl(options) '/chat_streaming' 
+}
+
+fn chat(options) {
+  options := options |> std.default(ChatOptions())
+
+  _res := with chatImpl(options) '/chat'
+
+  __failedToChat := false
+  returns? := ?
+  
+  if _res.resp.ok {
+
+    true -> {
+      __failedToChat := true
+       returns? := _res
+    }
+
+    _ -> {
+
+      if len(_res.resp.value) > 1 {
+        true -> {
+          
+        }
+
+        _ -> {
+          
+        }
+      }
+
+    }
+
+  }
+
+  returns?
+
+}
+
+fn chatImpl() {
+  makeRequest(
+    urlPath,
+    {
+      model: options.model
+      parameters: {
+        prompts: [
+          {
+            context: ''
+            messages: options.messages
+          }
+        ]
+        temperature: options.temperature,
+        maxOutputTokens: options.maxOutputTokens
+        candidateCount: if options |> std.contains?('choicesCount') {
+          true -> options.choicesCount
+          false -> ?
+        }
+      },
+    },
+    fn {
+      if !json.responses.(0).candidates.(0).message {
+        false -> with std.println() 'Expected json to have identity token'
+
+        _filler := ?
+
+        true -> {
+          // tmyk: json.responses -> GET 0 -> candidates -> clensed ...message
+          _filler <- with std.filter(json.responses.(0).candidates) fn(item, count) {
+            _msgkeys := keys(json.responses.(0).candidates)
+            
+            if _msgkeys.(count) {
+              'content', 'author' -> true
+              _ -> false
+            }
+
+          }
+          
+        }
+
+        // TODO: Implement instance-check module for interfaces bases. 
+        // We would use the ChatMessage interface.
+
+      }
+
+    }
+
+  )
+
+}
